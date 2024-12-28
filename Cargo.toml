@@ -3,4 +3,75 @@ name = "kaleido"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+static = ["openxr-sys/static", "linked"]
+loaded = ["libloading"]
+linked = ["openxr-sys/linked"]
+mint = ["openxr-sys/mint"]
+default = ["loaded"]
+
 [dependencies]
+openxr-sys = "0.11.0"
+openxr = "0.19.0"
+libc = "0.2.50"
+libloading = { version = "0.8", optional = true }
+cfg-if = "1"
+winit = { version = "0.29", features = ["rwh_05"] }
+env_logger = "0.10"
+log = "0.4"
+wgpu = "22.0"
+pollster = "0.3"
+
+[dev-dependencies]
+ash = { version = "0.38", default-features = false, features = ["loaded"] }
+ctrlc = "3.1.5"
+
+[target.'cfg(target_os = "android")'.dev-dependencies]
+ndk-glue = "0.7"
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-context = "0.1"
+
+[package.metadata.docs.rs]
+features = ["linked", "loaded", "mint"]
+
+[[example]]
+name = "main"
+path = "src/main.rs"
+
+[[example]]
+name = "hello-vr-triangle"
+path = "src/hello_vr_triangle.rs"
+
+[[example]]
+name = "vulkan"
+path = "src/vulkan.rs"
+
+[[example]]
+name = "vulkan-android"
+path = "src/vulkan.rs"
+crate-type = ["cdylib"]
+
+# The following manifest metadata is used by cargo-apk to configure the example Android app for the Oculus Quest 1 and Quest 2.
+# It does not affect the openxr crate.
+[package.metadata.android]
+build_targets = ["aarch64-linux-android"]
+runtime_libs = "examples/libs"
+
+[package.metadata.android.sdk]
+min_sdk_version = 21
+target_sdk_version = 30
+
+[package.metadata.android.application.activity]
+theme = "@android:style/Theme.Black.NoTitleBar.Fullscreen"
+config_changes = "density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+launch_mode = "singleTask"
+orientation = "landscape"
+resizeable_activity = false
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.MAIN"]
+categories = [
+    "com.oculus.intent.category.VR",
+    "android.intent.category.LAUNCHER",
+]

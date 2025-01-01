@@ -20,6 +20,7 @@ winit = { version = "0.29", features = ["rwh_05"] }
 env_logger = "0.10"
 log = "0.4"
 wgpu = "22.0"
+wgpu-hal = "22.0"
 pollster = "0.3"
 
 [dev-dependencies]
@@ -34,6 +35,10 @@ ndk-context = "0.1"
 
 [package.metadata.docs.rs]
 features = ["linked", "loaded", "mint"]
+
+[[example]]
+name = "kaleido"
+path = "src/kaleido.rs"
 
 [[example]]
 name = "main"

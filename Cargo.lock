@@ -764,6 +764,7 @@ dependencies = [
  "openxr-sys",
  "pollster",
  "wgpu",
+ "wgpu-hal",
  "winit",
 ]
 

@@ -35,6 +35,8 @@ impl<'a> State<'a> {
             ..Default::default()
         });
 
+
+
         let surface = instance.create_surface(window).unwrap();
 
         let adapter = instance

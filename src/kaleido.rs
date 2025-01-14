@@ -1,5 +1,6 @@
 use std::{borrow::Cow, cell::RefCell, default::Default, error::Error, ffi, ops::Drop, os::raw::c_char, ptr};
 use std::ffi::{c_int, CString};
+use std::ptr::null;
 use ash::{
     ext::debug_utils,
     khr::{surface, swapchain},
@@ -10,14 +11,16 @@ use ash::{
 use sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::sys::{SDL_CreateWindow, SDL_Init, SDL_RenderClear, SDL_RenderGeometry, SDL_RenderPresent, SDL_SetRenderDrawColor, SDL_Vulkan_LoadLibrary, SDL_Window, SDL_ALPHA_OPAQUE, SDL_INIT_AUDIO, SDL_INIT_VIDEO, SDL_WINDOWPOS_UNDEFINED_MASK};
+use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl2::rect::Rect;
+use sdl2::sys::{SDL_CreateWindow, SDL_FillRect, SDL_GetWindowSurface, SDL_Init, SDL_MapRGB, SDL_Rect, SDL_RenderClear, SDL_RenderGeometry, SDL_RenderPresent, SDL_SetRenderDrawColor, SDL_Vulkan_LoadLibrary, SDL_Window, SDL_ALPHA_OPAQUE, SDL_INIT_AUDIO, SDL_INIT_VIDEO, SDL_WINDOWPOS_UNDEFINED_MASK};
 use sdl2::sys::SDL_WindowFlags::{SDL_WINDOW_SHOWN, SDL_WINDOW_VULKAN};
 use sdl2::video::Window;
 
 fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
-    let window = video_subsystem
+    let mut window = video_subsystem
         .window("Window Title - My Vulkano-SDL2 application", 1024, 768)
         .vulkan()
         .build()
@@ -29,8 +32,11 @@ fn main() {
     let instance = create_vulkan_instance(&entry, &window);
     let surface = create_surface(&entry, &instance, &window);
 
-
     let mut event_pump = sdl_context.event_pump().unwrap();
+
+
+
+
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -46,12 +52,12 @@ fn main() {
             }
         }
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
-        /*unsafe {
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-            SDL_RenderClear(renderer);
-            SDL_RenderGeometry(renderer, nullptr, verts.data(), verts.size(), nullptr, 0);
-            SDL_RenderPresent(renderer );
-        }*/
+
+        let mut sdl_surface = window.surface(&mut event_pump).unwrap();
+        let my_rect = Rect::new(100,100,300,300);
+        sdl_surface.fill_rect(None, Color::RGB(255,255,255)).unwrap();
+        sdl_surface.fill_rect(my_rect, Color::RGB(255, 0, 0)).unwrap();
+        sdl_surface.update_window().unwrap();
     }
 
     unsafe {

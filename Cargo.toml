@@ -3,6 +3,7 @@ name = "kaleido"
 version = "0.1.0"
 edition = "2021"
 
+
 [features]
 static = ["openxr-sys/static", "linked"]
 loaded = ["libloading"]
@@ -19,8 +20,6 @@ cfg-if = "1"
 winit = { version = "0.29", features = ["rwh_05"] }
 env_logger = "0.10"
 log = "0.4"
-wgpu = "22.0"
-wgpu-hal = "22.0"
 pollster = "0.3"
 
 [dev-dependencies]
@@ -39,14 +38,6 @@ features = ["linked", "loaded", "mint"]
 [[example]]
 name = "kaleido"
 path = "src/kaleido.rs"
-
-[[example]]
-name = "main"
-path = "src/main.rs"
-
-[[example]]
-name = "hello-vr-triangle"
-path = "src/hello_vr_triangle.rs"
 
 [[example]]
 name = "vulkan"
@@ -80,3 +71,18 @@ categories = [
     "com.oculus.intent.category.VR",
     "android.intent.category.LAUNCHER",
 ]
+
+[dependencies.sdl2]
+version = "0.37"
+default-features = false
+features = ["ttf","image","gfx","mixer","static-link","use-vcpkg"]
+
+[package.metadata.vcpkg]
+dependencies = ["sdl2[vulkan]", "sdl2-image[libjpeg-turbo,tiff,libwebp]", "sdl2-ttf", "sdl2-gfx", "sdl2-mixer", "vulkan"]
+git = "https://github.com/microsoft/vcpkg"
+rev = "2024.05.24" # release 2024.05.24 # to check for a new one, check https://github.com/microsoft/vcpkg/releases
+
+[package.metadata.vcpkg.target]
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md" }
+
+

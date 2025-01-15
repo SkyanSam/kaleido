@@ -54,8 +54,8 @@ fn main() {
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
 
         let mut sdl_surface = window.surface(&mut event_pump).unwrap();
-        let my_rect = Rect::new(100,100,300,300);
-        sdl_surface.fill_rect(None, Color::RGB(255,255,255)).unwrap();
+        let my_rect = Rect::new(100,100,500,500);
+        sdl_surface.fill_rect(None, Color::RGB(0,255,0)).unwrap();
         sdl_surface.fill_rect(my_rect, Color::RGB(255, 0, 0)).unwrap();
         sdl_surface.update_window().unwrap();
     }

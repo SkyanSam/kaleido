@@ -1,43 +1,162 @@
-//! Illustrates rendering using Vulkan with multiview. Supports any Vulkan 1.1 capable environment.
-//!
-//! Renders a smooth gradient across the entire view, with different colors per eye.
-//!
-//! This example uses minimal abstraction for clarity. Real-world code should encapsulate and
-//! largely decouple its Vulkan and OpenXR components and handle errors gracefully.
-
-use std::{
-    io::Cursor,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
-
-use ash::{
-    util::read_spv,
-    vk::{self, Handle},
-};
+use std::sync::Arc;
+use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use ash::vk;
+use ash::vk::Handle;
 use openxr as xr;
+use sdl2::keyboard::Keycode;
+use ash::util::read_spv;
 
-#[allow(clippy::field_reassign_with_default)] // False positive, might be fixed 1.51
-#[cfg_attr(target_os = "android", ndk_glue::main)]
-pub fn main() {
+pub const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_SRGB;
+pub const VIEW_COUNT: u32 = 2;
+const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
+/// Maximum number of frames in flight
+const PIPELINE_DEPTH: u32 = 2;
+struct MyState<'a> {
+    sdl_context : sdl2::Sdl,
+    video_subsystem: sdl2::VideoSubsystem,
+    sdl_window : sdl2::video::Window,
+    instance_extensions: Vec<&'a str>,
+    ash_entry : ash::Entry,
+    ash_instance : ash::Instance,
+    ash_surface : ash::vk::SurfaceKHR,
+    sdl_event_pump : sdl2::EventPump,
+}
+struct Swapchain {
+    handle: xr::Swapchain<xr::Vulkan>,
+    buffers: Vec<Framebuffer>,
+    resolution: vk::Extent2D,
+}
+
+struct Framebuffer {
+    framebuffer: vk::Framebuffer,
+    color: vk::ImageView,
+}
+
+
+fn main() {
+    std::env::set_var("RUST_BACKTRACE", "1");
+    let mut state = sdl_vulkan_init();
+    vulkan_openxr(&mut state);
+}
+
+fn sdl_vulkan_init() -> MyState<'static> {
+
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+    let sdl_window = video_subsystem
+        .window("Kaleido Engine Super Alpha", 1024, 768)
+        .vulkan()
+        .build()
+        .unwrap();
+    let instance_extensions = sdl_window.vulkan_instance_extensions().unwrap();
+    
+    let ash_entry = unsafe { ash::Entry::load().unwrap() };
+    let ash_instance = create_vulkan_instance(&ash_entry, &sdl_window);
+    let ash_surface = create_surface(&ash_entry, &ash_instance, &sdl_window);
+
+    let sdl_event_pump = sdl_context.event_pump().unwrap();
+
+    MyState {
+        sdl_context,
+        video_subsystem,
+        sdl_window,
+        instance_extensions,
+        ash_entry,
+        ash_instance,
+        ash_surface,
+        sdl_event_pump
+    }
+}
+// Function below is depreciated for now
+fn sdl_vulkan_loop(state : &mut MyState) {
+    for event in state.sdl_event_pump.poll_iter() {
+        match event {
+            sdl2::event::Event::Quit { .. }
+            | sdl2::event::Event::KeyDown {
+                keycode: Some(Keycode::Escape),
+                ..
+            } => {
+                //break 'main_loop; //the loop had symbol running.
+            }
+            _ => {}
+        }
+    }
+    ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
+
+    let mut sdl_surface = state.sdl_window.surface(&mut state.sdl_event_pump).unwrap();
+    let my_rect = sdl2::rect::Rect::new(100,100,500,500);
+    sdl_surface.fill_rect(None, sdl2::pixels::Color::RGB(0,255,0)).unwrap();
+    sdl_surface.fill_rect(my_rect, sdl2::pixels::Color::RGB(255, 0, 0)).unwrap();
+    sdl_surface.update_window().unwrap();
+}
+fn sdl_draw_loop(state : &mut MyState) {
+    let mut sdl_surface = state.sdl_window.surface(&mut state.sdl_event_pump).unwrap();
+    let my_rect = sdl2::rect::Rect::new(100,100,500,500);
+    sdl_surface.fill_rect(None, sdl2::pixels::Color::RGB(0,255,0)).unwrap();
+    sdl_surface.fill_rect(my_rect, sdl2::pixels::Color::RGB(255, 0, 0)).unwrap();
+    sdl_surface.update_window().unwrap();
+}
+fn create_vulkan_instance(entry: &ash::Entry, window: &sdl2::video::Window) -> ash::Instance {
+    let app_name = std::ffi::CString::new("Vulkan App").unwrap();
+
+    let app_info = vk::ApplicationInfo::default()
+        .application_name(&app_name)
+        .application_version(0)
+        .engine_name(&app_name)
+        .engine_version(0)
+        .api_version(vk::make_api_version(0, 1, 3, 0)); // Vulkan 1.3
+
+    // Get required Vulkan extensions from SDL2
+    let required_extensions = window
+        .vulkan_instance_extensions()
+        .expect("Failed to get Vulkan instance extensions");
+
+    let extension_pointers: Vec<*const i8> = required_extensions
+        .iter()
+        .map(|ext| ext.as_ptr() as *const i8)
+        .collect();
+
+    let instance_create_info = vk::InstanceCreateInfo::default()
+        .application_info(&app_info)
+        .enabled_extension_names(&extension_pointers);
+
+    unsafe {
+        entry
+            .create_instance(&instance_create_info, None)
+            .expect("Failed to create Vulkan instance")
+    }
+}
+fn create_surface(
+    entry: &ash::Entry,
+    instance: &ash::Instance,
+    window: &sdl2::video::Window,
+) -> vk::SurfaceKHR {
+    let surface = window
+        .vulkan_create_surface(instance.handle().as_raw() as _)
+        .expect("Failed to create Vulkan surface");
+
+    vk::SurfaceKHR::from_raw(surface as _)
+}
+
+fn vulkan_openxr(state: &mut MyState) {
     // Handle interrupts gracefully
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     ctrlc::set_handler(move || {
         r.store(false, Ordering::Relaxed);
     })
-    .expect("setting Ctrl-C handler");
+        .expect("setting Ctrl-C handler");
 
     #[cfg(feature = "static")]
     let entry = xr::Entry::linked();
-    /*#[cfg(not(feature = "static"))]
+
+    /*
+    #[cfg(not(feature = "static"))]
 
     let entry = unsafe {
-        xr::Entry::linked();
-            //.expect("couldn't find the OpenXR loader; try enabling the \"static\" feature")
+        xr::Entry::load()
+            .expect("couldn't find the OpenXR loader; try enabling the \"static\" feature")
     };*/
 
     #[cfg(target_os = "android")]
@@ -111,10 +230,8 @@ pub fn main() {
             reqs.max_api_version_supported.major() + 1
         );
     }
-
-    #[allow(clippy::missing_transmute_annotations)]
     unsafe {
-        let vk_entry = ash::Entry::load().unwrap();
+        /*let vk_entry = ash::Entry::load().unwrap();
 
         let vk_app_info = vk::ApplicationInfo::default()
             .application_version(0)
@@ -136,21 +253,21 @@ pub fn main() {
                 vk_entry.static_fn(),
                 vk::Instance::from_raw(vk_instance as _),
             )
-        };
+        };*/
 
         let vk_physical_device = vk::PhysicalDevice::from_raw(
             xr_instance
-                .vulkan_graphics_device(system, vk_instance.handle().as_raw() as _)
+                .vulkan_graphics_device(system, state.ash_instance.handle().as_raw() as _)
                 .unwrap() as _,
         );
 
-        let vk_device_properties = vk_instance.get_physical_device_properties(vk_physical_device);
+        let vk_device_properties = state.ash_instance.get_physical_device_properties(vk_physical_device);
         if vk_device_properties.api_version < vk_target_version {
-            vk_instance.destroy_instance(None);
+            state.ash_instance.destroy_instance(None);
             panic!("Vulkan phyiscal device doesn't support version 1.1");
         }
 
-        let queue_family_index = vk_instance
+        let queue_family_index = state.ash_instance
             .get_physical_device_queue_family_properties(vk_physical_device)
             .into_iter()
             .enumerate()
@@ -167,7 +284,7 @@ pub fn main() {
             let vk_device = xr_instance
                 .create_vulkan_device(
                     system,
-                    std::mem::transmute(vk_entry.static_fn().get_instance_proc_addr),
+                    std::mem::transmute(state.ash_entry.static_fn().get_instance_proc_addr),
                     vk_physical_device.as_raw() as _,
                     &vk::DeviceCreateInfo::default()
                         .queue_create_infos(&[vk::DeviceQueueCreateInfo::default()
@@ -182,7 +299,7 @@ pub fn main() {
                 .map_err(vk::Result::from_raw)
                 .expect("Vulkan error creating Vulkan device");
 
-            ash::Device::load(vk_instance.fp_v1_0(), vk::Device::from_raw(vk_device as _))
+            ash::Device::load(state.ash_instance.fp_v1_0(), vk::Device::from_raw(vk_device as _))
         };
 
         let queue = vk_device.get_device_queue(queue_family_index, 0);
@@ -223,107 +340,8 @@ pub fn main() {
             )
             .unwrap();
 
-        let vert = read_spv(&mut Cursor::new(&include_bytes!("fullscreen.vert.spv")[..])).unwrap();
-        let frag = read_spv(&mut Cursor::new(
-            &include_bytes!("debug_pattern.frag.spv")[..],
-        ))
-        .unwrap();
-        let vert = vk_device
-            .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&vert), None)
-            .unwrap();
-        let frag = vk_device
-            .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&frag), None)
-            .unwrap();
 
-        let pipeline_layout = vk_device
-            .create_pipeline_layout(
-                &vk::PipelineLayoutCreateInfo::default().set_layouts(&[]),
-                None,
-            )
-            .unwrap();
-        let noop_stencil_state = vk::StencilOpState {
-            fail_op: vk::StencilOp::KEEP,
-            pass_op: vk::StencilOp::KEEP,
-            depth_fail_op: vk::StencilOp::KEEP,
-            compare_op: vk::CompareOp::ALWAYS,
-            compare_mask: 0,
-            write_mask: 0,
-            reference: 0,
-        };
-        let pipeline = vk_device
-            .create_graphics_pipelines(
-                vk::PipelineCache::null(),
-                &[vk::GraphicsPipelineCreateInfo::default()
-                    .stages(&[
-                        vk::PipelineShaderStageCreateInfo {
-                            stage: vk::ShaderStageFlags::VERTEX,
-                            module: vert,
-                            p_name: b"main\0".as_ptr() as _,
-                            ..Default::default()
-                        },
-                        vk::PipelineShaderStageCreateInfo {
-                            stage: vk::ShaderStageFlags::FRAGMENT,
-                            module: frag,
-                            p_name: b"main\0".as_ptr() as _,
-                            ..Default::default()
-                        },
-                    ])
-                    .vertex_input_state(&vk::PipelineVertexInputStateCreateInfo::default())
-                    .input_assembly_state(
-                        &vk::PipelineInputAssemblyStateCreateInfo::default()
-                            .topology(vk::PrimitiveTopology::TRIANGLE_LIST),
-                    )
-                    .viewport_state(
-                        &vk::PipelineViewportStateCreateInfo::default()
-                            .scissor_count(1)
-                            .viewport_count(1),
-                    )
-                    .rasterization_state(
-                        &vk::PipelineRasterizationStateCreateInfo::default()
-                            .cull_mode(vk::CullModeFlags::NONE)
-                            .polygon_mode(vk::PolygonMode::FILL)
-                            .line_width(1.0),
-                    )
-                    .multisample_state(
-                        &vk::PipelineMultisampleStateCreateInfo::default()
-                            .rasterization_samples(vk::SampleCountFlags::TYPE_1),
-                    )
-                    .depth_stencil_state(
-                        &vk::PipelineDepthStencilStateCreateInfo::default()
-                            .depth_test_enable(false)
-                            .depth_write_enable(false)
-                            .front(noop_stencil_state)
-                            .back(noop_stencil_state),
-                    )
-                    .color_blend_state(
-                        &vk::PipelineColorBlendStateCreateInfo::default().attachments(&[
-                            vk::PipelineColorBlendAttachmentState {
-                                blend_enable: vk::TRUE,
-                                src_color_blend_factor: vk::BlendFactor::ONE,
-                                dst_color_blend_factor: vk::BlendFactor::ZERO,
-                                color_blend_op: vk::BlendOp::ADD,
-                                color_write_mask: vk::ColorComponentFlags::R
-                                    | vk::ColorComponentFlags::G
-                                    | vk::ColorComponentFlags::B,
-                                ..Default::default()
-                            },
-                        ]),
-                    )
-                    .dynamic_state(
-                        &vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&[
-                            vk::DynamicState::VIEWPORT,
-                            vk::DynamicState::SCISSOR,
-                        ]),
-                    )
-                    .layout(pipeline_layout)
-                    .render_pass(render_pass)
-                    .subpass(0)],
-                None,
-            )
-            .unwrap()[0];
-
-        vk_device.destroy_shader_module(vert, None);
-        vk_device.destroy_shader_module(frag, None);
+        // AFTER THIS IS MORE XR INPUT STUFF!!!!!! self note
 
         // A session represents this application's desire to display things! This is where we hook
         // up our graphics API. This does not start the session; for that, you'll need a call to
@@ -332,7 +350,7 @@ pub fn main() {
             .create_session::<xr::Vulkan>(
                 system,
                 &xr::vulkan::SessionCreateInfo {
-                    instance: vk_instance.handle().as_raw() as _,
+                    instance: state.ash_instance.handle().as_raw() as _,
                     physical_device: vk_physical_device.as_raw() as _,
                     device: vk_device.handle().as_raw() as _,
                     queue_family_index,
@@ -425,6 +443,8 @@ pub fn main() {
             })
             .collect::<Vec<_>>();
 
+        // MAIN LOOP !!!
+
         // Main loop
         let mut swapchain = None;
         let mut event_storage = xr::EventDataBuffer::new();
@@ -433,6 +453,21 @@ pub fn main() {
         // swapchain image index.
         let mut frame = 0;
         'main_loop: loop {
+            // SDL2 POLLING CODE STARTS HERE
+            for event in state.sdl_event_pump.poll_iter() {
+                match event {
+                    sdl2::event::Event::Quit { .. }
+                    | sdl2::event::Event::KeyDown {
+                        keycode: Some(Keycode::Escape),
+                        ..
+                    } => {
+                        break 'main_loop;
+                    }
+                    _ => {}
+                }
+            }
+            // SDL2 POLLING CODE ENDS HERE
+
             if !running.load(Ordering::Relaxed) {
                 println!("requesting exit");
                 // The OpenXR runtime may want to perform a smooth transition between scenes, so we
@@ -635,8 +670,9 @@ pub fn main() {
             // Draw the scene. Multiview means we only need to do this once, and the GPU will
             // automatically broadcast operations to all views. Shaders can use `gl_ViewIndex` to
             // e.g. select the correct view matrix.
-            vk_device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
-            vk_device.cmd_draw(cmd, 3, 1, 0, 0);
+            //vk_device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
+            //vk_device.cmd_draw(cmd, 3, 1, 0, 0);
+            sdl_draw_loop(state);
 
             vk_device.cmd_end_render_pass(cmd);
             vk_device.end_command_buffer(cmd).unwrap();
@@ -765,31 +801,13 @@ pub fn main() {
             }
         }
 
-        vk_device.destroy_pipeline(pipeline, None);
-        vk_device.destroy_pipeline_layout(pipeline_layout, None);
+        //vk_device.destroy_pipeline(pipeline, None);
+        //vk_device.destroy_pipeline_layout(pipeline_layout, None);
         vk_device.destroy_command_pool(cmd_pool, None);
         vk_device.destroy_render_pass(render_pass, None);
         vk_device.destroy_device(None);
-        vk_instance.destroy_instance(None);
+        state.ash_instance.destroy_instance(None);
     }
 
-    println!("exiting cleanly");
+println!("exiting cleanly");
 }
-
-pub const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_SRGB;
-pub const VIEW_COUNT: u32 = 2;
-const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
-
-struct Swapchain {
-    handle: xr::Swapchain<xr::Vulkan>,
-    buffers: Vec<Framebuffer>,
-    resolution: vk::Extent2D,
-}
-
-struct Framebuffer {
-    framebuffer: vk::Framebuffer,
-    color: vk::ImageView,
-}
-
-/// Maximum number of frames in flight
-const PIPELINE_DEPTH: u32 = 2;

@@ -241,6 +241,7 @@ pub fn main() {
                 None,
             )
             .unwrap();
+
         let noop_stencil_state = vk::StencilOpState {
             fail_op: vk::StencilOp::KEEP,
             pass_op: vk::StencilOp::KEEP,

@@ -7,16 +7,16 @@ use std::{
     time::Duration,
 };
 
+use crate::kconstants::{COLOR_FORMAT, PIPELINE_DEPTH, VIEW_COUNT, VIEW_TYPE};
+use crate::kstructs::{Framebuffer, Swapchain};
+use ash::vk::RenderPass;
 use ash::{
     util::read_spv,
     vk::{self, Handle},
 };
-use ash::vk::RenderPass;
 use openxr as xr;
 use openxr::{vulkan, Session, Vulkan};
 use openxr_sys::EnvironmentBlendMode;
-use crate::kstructs::{Swapchain, Framebuffer};
-use crate::kconstants::{COLOR_FORMAT, VIEW_COUNT, VIEW_TYPE, PIPELINE_DEPTH};
 
 #[derive(Debug, Clone, Copy)]
 struct Vertex {
@@ -28,7 +28,13 @@ pub fn init_vulkan(
     xr_instance: &xr::Instance,
     system: xr::SystemId,
     vk_target_version: u32,
-) -> (ash::Instance, vk::PhysicalDevice, ash::Device, vk::Queue, u32) {
+) -> (
+    ash::Instance,
+    vk::PhysicalDevice,
+    ash::Device,
+    vk::Queue,
+    u32,
+) {
     unsafe {
         let vk_entry = ash::Entry::load().unwrap();
         let vk_app_info = vk::ApplicationInfo::default()
@@ -96,7 +102,13 @@ pub fn init_vulkan(
 
         let queue = vk_device.get_device_queue(queue_family_index, 0);
 
-        (vk_instance, vk_physical_device, vk_device, queue, queue_family_index)
+        (
+            vk_instance,
+            vk_physical_device,
+            vk_device,
+            queue,
+            queue_family_index,
+        )
     }
 }
 pub fn create_render_pass(vk_device: &ash::Device) -> vk::RenderPass {
@@ -148,7 +160,7 @@ pub fn create_pipeline(
         let frag = read_spv(&mut Cursor::new(
             &include_bytes!("debug_pattern.frag.spv")[..],
         ))
-            .unwrap();
+        .unwrap();
         let vert = vk_device
             .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&vert), None)
             .unwrap();
@@ -251,7 +263,6 @@ pub fn create_pipeline(
     }
 }
 
-
 pub fn init_openxr() -> (xr::Instance, xr::SystemId, EnvironmentBlendMode) {
     #[cfg(feature = "static")]
     let entry = xr::Entry::linked();
@@ -329,7 +340,18 @@ pub fn init_openxr() -> (xr::Instance, xr::SystemId, EnvironmentBlendMode) {
 
     (xr_instance, system, environment_blend_mode)
 }
-pub fn setup_openxr(xr_instance: &xr::Instance, system: xr::SystemId, session: &Session<Vulkan>) -> (xr::Space, xr::ActionSet, xr::Action<xr::Posef>, xr::Action<xr::Posef>, xr::Space, xr::Space) {
+pub fn setup_openxr(
+    xr_instance: &xr::Instance,
+    system: xr::SystemId,
+    session: &Session<Vulkan>,
+) -> (
+    xr::Space,
+    xr::ActionSet,
+    xr::Action<xr::Posef>,
+    xr::Action<xr::Posef>,
+    xr::Space,
+    xr::Space,
+) {
     // Create an action set to encapsulate our actions
     let action_set = xr_instance
         .create_action_set("input", "input pose information", 0)
@@ -385,10 +407,20 @@ pub fn setup_openxr(xr_instance: &xr::Instance, system: xr::SystemId, session: &
         .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
         .unwrap();
 
-    (stage, action_set, left_action, right_action, left_space, right_space)
+    (
+        stage,
+        action_set,
+        left_action,
+        right_action,
+        left_space,
+        right_space,
+    )
 }
 
-pub fn create_commands(vk_device: &ash::Device, queue_family_index:u32) -> (vk::CommandPool, Vec<vk::CommandBuffer>, Vec<vk::Fence>) {
+pub fn create_commands(
+    vk_device: &ash::Device,
+    queue_family_index: u32,
+) -> (vk::CommandPool, Vec<vk::CommandBuffer>, Vec<vk::Fence>) {
     unsafe {
         let cmd_pool = vk_device
             .create_command_pool(
@@ -423,92 +455,95 @@ pub fn create_commands(vk_device: &ash::Device, queue_family_index:u32) -> (vk::
     }
 }
 
-pub fn create_swapchain<'a>(swapchain: &'a mut Option<Swapchain>, xr_instance: &xr::Instance, vk_device: &ash::Device, render_pass: RenderPass, system: xr::SystemId, session: &Session<Vulkan>) -> &'a mut Swapchain
-{
-    swapchain.get_or_insert_with(|| {
-        // Now we need to find all the viewpoints we need to take care of! This is a
-        // property of the view configuration type; in this example we use PRIMARY_STEREO,
-        // so we should have 2 viewpoints.
-        //
-        // Because we are using multiview in this example, we require that all view
-        // dimensions are identical.
-        let views = xr_instance
-            .enumerate_view_configuration_views(system, VIEW_TYPE)
+pub fn create_swapchain(
+    xr_instance: &xr::Instance,
+    vk_device: &ash::Device,
+    render_pass: RenderPass,
+    system: xr::SystemId,
+    session: &Session<Vulkan>,
+) -> Swapchain {
+    // swapchain.get_or_insert_with(|| {
+    // Now we need to find all the viewpoints we need to take care of! This is a
+    // property of the view configuration type; in this example we use PRIMARY_STEREO,
+    // so we should have 2 viewpoints.
+    //
+    // Because we are using multiview in this example, we require that all view
+    // dimensions are identical.
+    let views = xr_instance
+        .enumerate_view_configuration_views(system, VIEW_TYPE)
+        .unwrap();
+    assert_eq!(views.len(), VIEW_COUNT as usize);
+    assert_eq!(views[0], views[1]);
+
+    // Create a swapchain for the viewpoints! A swapchain is a set of texture buffers
+    // used for displaying to screen, typically this is a backbuffer and a front buffer,
+    // one for rendering data to, and one for displaying on-screen.
+    let resolution = vk::Extent2D {
+        width: views[0].recommended_image_rect_width,
+        height: views[0].recommended_image_rect_height,
+    };
+    let handle = session
+        .create_swapchain(&xr::SwapchainCreateInfo {
+            create_flags: xr::SwapchainCreateFlags::EMPTY,
+            usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
+                | xr::SwapchainUsageFlags::SAMPLED,
+            format: COLOR_FORMAT.as_raw() as _,
+            // The Vulkan graphics pipeline we create is not set up for multisampling,
+            // so we hardcode this to 1. If we used a proper multisampling setup, we
+            // could set this to `views[0].recommended_swapchain_sample_count`.
+            sample_count: 1,
+            width: resolution.width,
+            height: resolution.height,
+            face_count: 1,
+            array_size: VIEW_COUNT,
+            mip_count: 1,
+        })
+        .unwrap();
+
+    // We'll want to track our own information about the swapchain, so we can draw stuff
+    // onto it! We'll also create a buffer for each generated texture here as well.
+    let images = handle.enumerate_images().unwrap();
+
+    let buffers: Vec<Framebuffer> = images
+        .into_iter()
+        .map(|color_image| {
+            let color_image = vk::Image::from_raw(color_image);
+            let color = unsafe {
+                vk_device.create_image_view(
+                    &vk::ImageViewCreateInfo::default()
+                        .image(color_image)
+                        .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
+                        .format(COLOR_FORMAT)
+                        .subresource_range(vk::ImageSubresourceRange {
+                            aspect_mask: vk::ImageAspectFlags::COLOR,
+                            base_mip_level: 0,
+                            level_count: 1,
+                            base_array_layer: 0,
+                            layer_count: VIEW_COUNT,
+                        }),
+                    None,
+                )
+            }
             .unwrap();
-        assert_eq!(views.len(), VIEW_COUNT as usize);
-        assert_eq!(views[0], views[1]);
-
-        // Create a swapchain for the viewpoints! A swapchain is a set of texture buffers
-        // used for displaying to screen, typically this is a backbuffer and a front buffer,
-        // one for rendering data to, and one for displaying on-screen.
-        let resolution = vk::Extent2D {
-            width: views[0].recommended_image_rect_width,
-            height: views[0].recommended_image_rect_height,
-        };
-        let handle = session
-            .create_swapchain(&xr::SwapchainCreateInfo {
-                create_flags: xr::SwapchainCreateFlags::EMPTY,
-                usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
-                    | xr::SwapchainUsageFlags::SAMPLED,
-                format: COLOR_FORMAT.as_raw() as _,
-                // The Vulkan graphics pipeline we create is not set up for multisampling,
-                // so we hardcode this to 1. If we used a proper multisampling setup, we
-                // could set this to `views[0].recommended_swapchain_sample_count`.
-                sample_count: 1,
-                width: resolution.width,
-                height: resolution.height,
-                face_count: 1,
-                array_size: VIEW_COUNT,
-                mip_count: 1,
-            })
+            let framebuffer = unsafe {
+                vk_device.create_framebuffer(
+                    &vk::FramebufferCreateInfo::default()
+                        .render_pass(render_pass)
+                        .width(resolution.width)
+                        .height(resolution.height)
+                        .attachments(&[color])
+                        .layers(1), // Multiview handles addressing multiple layers
+                    None,
+                )
+            }
             .unwrap();
+            Framebuffer { framebuffer, color }
+        })
+        .collect();
 
-        // We'll want to track our own information about the swapchain, so we can draw stuff
-        // onto it! We'll also create a buffer for each generated texture here as well.
-        let images = handle.enumerate_images().unwrap();
-
-        let buffers:Vec<Framebuffer> = images
-            .into_iter()
-            .map(|color_image| {
-                let color_image = vk::Image::from_raw(color_image);
-                let color = unsafe {
-                    vk_device
-                        .create_image_view(
-                            &vk::ImageViewCreateInfo::default()
-                                .image(color_image)
-                                .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
-                                .format(COLOR_FORMAT)
-                                .subresource_range(vk::ImageSubresourceRange {
-                                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                                    base_mip_level: 0,
-                                    level_count: 1,
-                                    base_array_layer: 0,
-                                    layer_count: VIEW_COUNT,
-                                }),
-                            None,
-                        )
-                }.unwrap();
-                let framebuffer = unsafe {
-                    vk_device
-                        .create_framebuffer(
-                            &vk::FramebufferCreateInfo::default()
-                                .render_pass(render_pass)
-                                .width(resolution.width)
-                                .height(resolution.height)
-                                .attachments(&[color])
-                                .layers(1), // Multiview handles addressing multiple layers
-                            None,
-                        )
-                }.unwrap();
-                Framebuffer { framebuffer, color }
-            })
-            .collect();
-
-        Swapchain {
-            handle,
-            resolution,
-            buffers: buffers
-        }
-    })
+    Swapchain {
+        handle,
+        resolution,
+        buffers,
+    }
 }
-

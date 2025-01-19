@@ -13,9 +13,7 @@ use std::{
     time::Duration,
 };
 
-use ash::{
-    vk::{self, Handle},
-};
+use ash::vk::{self, Handle};
 use openxr as xr;
 
 mod kabstract;
@@ -32,14 +30,13 @@ use kconstants::*;
 #[allow(clippy::field_reassign_with_default)]
 #[cfg_attr(target_os = "android", ndk_glue::main)]
 pub fn main() {
-
     // Handle interrupts gracefully
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     ctrlc::set_handler(move || {
         r.store(false, Ordering::Relaxed);
     })
-        .expect("setting Ctrl-C handler");
+    .expect("setting Ctrl-C handler");
 
     let (xr_instance, system, environment_blend_mode) = init_openxr();
 
@@ -74,16 +71,20 @@ pub fn main() {
                 device: vk_device.handle().as_raw() as _,
                 queue_family_index,
                 queue_index: 0,
-            }
+            },
         )
-    }.unwrap();
+    }
+    .unwrap();
 
-    let (stage, action_set, left_action, right_action, left_space, right_space) = setup_openxr(&xr_instance, system, &session);
+    let (stage, action_set, left_action, right_action, left_space, right_space) =
+        setup_openxr(&xr_instance, system, &session);
 
     let (cmd_pool, cmds, fences) = create_commands(&vk_device, queue_family_index);
 
+    // let mut swapchain = None;
+
     // Main loop
-    let mut swapchain = None;
+    let mut swapchain = create_swapchain(&xr_instance, &vk_device, render_pass, system, &session);
     let mut event_storage = xr::EventDataBuffer::new();
     let mut session_running = false;
     let mut frame = 0;
@@ -138,22 +139,34 @@ pub fn main() {
         frame_stream.begin().unwrap();
 
         if !xr_frame_state.should_render {
-            frame_stream.end(xr_frame_state.predicted_display_time, environment_blend_mode, &[]).unwrap();
+            frame_stream
+                .end(
+                    xr_frame_state.predicted_display_time,
+                    environment_blend_mode,
+                    &[],
+                )
+                .unwrap();
             continue;
         }
 
-        let swapchain = create_swapchain(&mut swapchain, &xr_instance, &vk_device, render_pass, system, &session);
-
         let image_index = swapchain.handle.acquire_image().unwrap();
 
-            unsafe {
-                vk_device.wait_for_fences(&[fences[frame]], true, u64::MAX).unwrap();
-                vk_device.reset_fences(&[fences[frame]]).unwrap();
-            }
+        unsafe {
+            vk_device
+                .wait_for_fences(&[fences[frame]], true, u64::MAX)
+                .unwrap();
+            vk_device.reset_fences(&[fences[frame]]).unwrap();
+        }
 
         let cmd = cmds[frame];
         unsafe {
-            vk_device.begin_command_buffer(cmd, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)).unwrap();
+            vk_device
+                .begin_command_buffer(
+                    cmd,
+                    &vk::CommandBufferBeginInfo::default()
+                        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+                )
+                .unwrap();
             vk_device.cmd_begin_render_pass(
                 cmd,
                 &vk::RenderPassBeginInfo::default()
@@ -198,8 +211,12 @@ pub fn main() {
 
         session.sync_actions(&[(&action_set).into()]).unwrap();
 
-        let right_location = right_space.locate(&stage, xr_frame_state.predicted_display_time).unwrap();
-        let left_location = left_space.locate(&stage, xr_frame_state.predicted_display_time).unwrap();
+        let right_location = right_space
+            .locate(&stage, xr_frame_state.predicted_display_time)
+            .unwrap();
+        let left_location = left_space
+            .locate(&stage, xr_frame_state.predicted_display_time)
+            .unwrap();
 
         let mut printed = false;
         if left_action.is_active(&session, xr::Path::NULL).unwrap() {
@@ -225,11 +242,19 @@ pub fn main() {
             println!();
         }
 
-        let (_, views) = session.locate_views(VIEW_TYPE, xr_frame_state.predicted_display_time, &stage).unwrap();
+        let (_, views) = session
+            .locate_views(VIEW_TYPE, xr_frame_state.predicted_display_time, &stage)
+            .unwrap();
         swapchain.handle.wait_image(xr::Duration::INFINITE).unwrap();
 
         unsafe {
-            vk_device.queue_submit(queue, &[vk::SubmitInfo::default().command_buffers(&[cmd])], fences[frame]).unwrap();
+            vk_device
+                .queue_submit(
+                    queue,
+                    &[vk::SubmitInfo::default().command_buffers(&[cmd])],
+                    fences[frame],
+                )
+                .unwrap();
         }
         swapchain.handle.release_image().unwrap();
 
@@ -241,23 +266,60 @@ pub fn main() {
             },
         };
 
-        frame_stream.end(xr_frame_state.predicted_display_time, environment_blend_mode, &[&xr::CompositionLayerProjection::new().space(&stage).views(&[xr::CompositionLayerProjectionView::new().pose(views[0].pose).fov(views[0].fov).sub_image(xr::SwapchainSubImage::new().swapchain(&swapchain.handle).image_array_index(0).image_rect(rect)), xr::CompositionLayerProjectionView::new().pose(views[1].pose).fov(views[1].fov).sub_image(xr::SwapchainSubImage::new().swapchain(&swapchain.handle).image_array_index(1).image_rect(rect))])]).unwrap();
+        frame_stream
+            .end(
+                xr_frame_state.predicted_display_time,
+                environment_blend_mode,
+                &[
+                    &xr::CompositionLayerProjection::new().space(&stage).views(&[
+                        xr::CompositionLayerProjectionView::new()
+                            .pose(views[0].pose)
+                            .fov(views[0].fov)
+                            .sub_image(
+                                xr::SwapchainSubImage::new()
+                                    .swapchain(&swapchain.handle)
+                                    .image_array_index(0)
+                                    .image_rect(rect),
+                            ),
+                        xr::CompositionLayerProjectionView::new()
+                            .pose(views[1].pose)
+                            .fov(views[1].fov)
+                            .sub_image(
+                                xr::SwapchainSubImage::new()
+                                    .swapchain(&swapchain.handle)
+                                    .image_array_index(1)
+                                    .image_rect(rect),
+                            ),
+                    ]),
+                ],
+            )
+            .unwrap();
         frame = (frame + 1) % PIPELINE_DEPTH as usize;
     }
 
     unsafe {
-        drop((session, frame_wait, frame_stream, stage, action_set, left_space, right_space, left_action, right_action));
+        drop((
+            session,
+            frame_wait,
+            frame_stream,
+            stage,
+            action_set,
+            left_space,
+            right_space,
+            left_action,
+            right_action,
+        ));
         vk_device.wait_for_fences(&fences, true, !0).unwrap();
         for fence in fences {
             vk_device.destroy_fence(fence, None);
         }
 
-        if let Some(swapchain) = swapchain {
+        // if let Some(swapchain) = swapchain {
             for buffer in swapchain.buffers {
                 vk_device.destroy_framebuffer(buffer.framebuffer, None);
                 vk_device.destroy_image_view(buffer.color, None);
             }
-        }
+        // }
 
         vk_device.destroy_pipeline(pipeline, None);
         vk_device.destroy_pipeline_layout(pipeline_layout, None);
@@ -269,4 +331,3 @@ pub fn main() {
 
     println!("exiting cleanly");
 }
-

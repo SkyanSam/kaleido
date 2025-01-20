@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use ash::vk::{self, Handle};
+use ash::vk::{self, BufferUsageFlags, Handle, MemoryMapFlags, MemoryPropertyFlags, SharingMode};
 use openxr as xr;
 
 mod kabstract;
@@ -81,10 +81,64 @@ pub fn main() {
 
     let (cmd_pool, cmds, fences) = create_commands(&vk_device, queue_family_index);
 
-    // let mut swapchain = None;
-
     // Main loop
     let mut swapchain = create_swapchain(&xr_instance, &vk_device, render_pass, system, &session);
+
+    let num_vertices = 3;
+    let vertices = [
+        Vertex {
+            pos: [0.0, 0.0],
+            color: [0.0, 0.0, 0.0]
+        },
+        Vertex {
+            pos: [0.0, 1.0],
+            color: [0.0, 0.0, 1.0]
+        },
+        Vertex {
+            pos: [1.0, 0.0],
+            color: [0.0, 1.0, 0.0]
+        },
+    ];
+    let vertex_buffer_size = (size_of::<Vertex>() * num_vertices) as u64;
+
+    let mut vertex_buffer = unsafe {
+        vk_device.create_buffer(
+            &vk::BufferCreateInfo {
+                size: vertex_buffer_size,
+                usage: BufferUsageFlags::VERTEX_BUFFER,
+                sharing_mode: SharingMode::EXCLUSIVE,
+                ..Default::default()
+            },
+            None
+        )
+    }.expect("failed to create vertex buffer");
+
+    let vertex_memory = unsafe {
+        vk_device.allocate_memory(
+            &vk::MemoryAllocateInfo {
+                allocation_size: vertex_buffer_size,
+                memory_type_index: find_memory_type(
+                    &vk_instance,
+                    vk_physical_device,
+                    &vk_device,
+                    vertex_buffer,
+                    MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+                ),
+                ..Default::default()
+            },
+            None
+        )
+    }.expect("failed to allocate memory for the vertex buffer");
+
+    let mut vertex_data = unsafe {
+        let vertices_ptr = vk_device.map_memory(
+            vertex_memory, 0, vertex_buffer_size, MemoryMapFlags::empty()
+        ).expect("failed to map vertex memory") as *mut Vertex;
+        std::slice::from_raw_parts_mut(vertices_ptr, num_vertices)
+    };
+    vertex_data.copy_from_slice(&vertices);
+    unsafe { vk_device.unmap_memory(vertex_memory); }
+
     let mut event_storage = xr::EventDataBuffer::new();
     let mut session_running = false;
     let mut frame = 0;
@@ -178,7 +232,7 @@ pub fn main() {
                     })
                     .clear_values(&[vk::ClearValue {
                         color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 1.0],
+                            float32: [0.0, 0.5, 0.5, 1.0],
                         },
                     }]),
                 vk::SubpassContents::INLINE,
@@ -203,7 +257,14 @@ pub fn main() {
             vk_device.cmd_set_scissor(cmd, 0, &scissors);
 
             vk_device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline);
-            vk_device.cmd_draw(cmd, 3, 1, 0, 0);
+
+            const vertex_buffer_bound_to : u32 = 0;
+
+            let x = [vertex_buffer];
+            let y = [0];
+            vk_device.cmd_bind_vertex_buffers(cmd, vertex_buffer_bound_to, &x, &y);
+
+            vk_device.cmd_draw(cmd, num_vertices as u32, 1, 0, 0);
 
             vk_device.cmd_end_render_pass(cmd);
             vk_device.end_command_buffer(cmd).unwrap();
@@ -239,7 +300,7 @@ pub fn main() {
             printed = true;
         }
         if printed {
-            println!();
+            println!("erics print line");
         }
 
         let (_, views) = session
@@ -294,6 +355,8 @@ pub fn main() {
                 ],
             )
             .unwrap();
+            // ;
+        println!("Succeeded at frame {frame}");
         frame = (frame + 1) % PIPELINE_DEPTH as usize;
     }
 
@@ -314,12 +377,13 @@ pub fn main() {
             vk_device.destroy_fence(fence, None);
         }
 
-        // if let Some(swapchain) = swapchain {
             for buffer in swapchain.buffers {
                 vk_device.destroy_framebuffer(buffer.framebuffer, None);
                 vk_device.destroy_image_view(buffer.color, None);
             }
-        // }
+
+        vk_device.destroy_buffer(vertex_buffer, None);
+        vk_device.free_memory(vertex_memory, None);
 
         vk_device.destroy_pipeline(pipeline, None);
         vk_device.destroy_pipeline_layout(pipeline_layout, None);

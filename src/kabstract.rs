@@ -6,7 +6,7 @@ use std::{
     },
     time::Duration,
 };
-
+use std::mem::offset_of;
 use crate::kconstants::{COLOR_FORMAT, PIPELINE_DEPTH, VIEW_COUNT, VIEW_TYPE};
 use crate::kstructs::{Framebuffer, Swapchain};
 use ash::vk::RenderPass;
@@ -156,9 +156,9 @@ pub fn create_pipeline(
     render_pass: vk::RenderPass,
 ) -> (vk::Pipeline, vk::PipelineLayout) {
     unsafe {
-        let vert = read_spv(&mut Cursor::new(&include_bytes!("fullscreen.vert.spv")[..])).unwrap();
+        let vert = read_spv(&mut Cursor::new(&include_bytes!("newvert.spv")[..])).unwrap();
         let frag = read_spv(&mut Cursor::new(
-            &include_bytes!("debug_pattern.frag.spv")[..],
+            &include_bytes!("newfrag.spv")[..],
         ))
         .unwrap();
         let vert = vk_device
@@ -184,6 +184,41 @@ pub fn create_pipeline(
             write_mask: 0,
             reference: 0,
         };
+
+        let binding_description = vk::VertexInputBindingDescription {
+            binding: 0,
+            stride: size_of::<Vertex>() as u32,
+            input_rate: vk::VertexInputRate::VERTEX
+        };
+
+        let binding_description = [binding_description];
+
+        let attribute_description = [
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 0,
+                format: vk::Format::R32G32_SFLOAT,
+                offset: offset_of!(Vertex, pos) as u32,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 1,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: offset_of!(Vertex, color) as u32,
+            },
+        ];
+
+        // let binding_description_ptr = binding_description.as_ptr();
+        // let attribute_description_ptr= attribute_description.as_ptr();
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo {
+            vertex_binding_description_count: binding_description.len() as u32, // adjust for scalability later
+            p_vertex_binding_descriptions: binding_description.as_ptr(),
+            vertex_attribute_description_count: attribute_description.len() as u32, // adjust for scalability later
+            p_vertex_attribute_descriptions: attribute_description.as_ptr(),
+            ..Default::default()
+        };
+
+
         let pipeline = vk_device
             .create_graphics_pipelines(
                 vk::PipelineCache::null(),
@@ -202,7 +237,8 @@ pub fn create_pipeline(
                             ..Default::default()
                         },
                     ])
-                    .vertex_input_state(&vk::PipelineVertexInputStateCreateInfo::default())
+                    //.vertex_input_state(&vk::PipelineVertexInputStateCreateInfo::default())
+                    .vertex_input_state(&vertex_input_state)
                     .input_assembly_state(
                         &vk::PipelineInputAssemblyStateCreateInfo::default()
                             .topology(vk::PrimitiveTopology::TRIANGLE_LIST),
@@ -546,4 +582,26 @@ pub fn create_swapchain(
         resolution,
         buffers,
     }
+}
+
+/// `find_memory_type` as defined in [https://vulkan-tutorial.com/Vertex_buffers/Vertex_buffer_creation].
+/// This is used to find a vulkan heap with the appropriate properties for vertex buffer creation (or for any buffer creation).
+pub unsafe fn find_memory_type(
+    instance: &ash::Instance,
+    physical_device: vk::PhysicalDevice,
+    device: &ash::Device,
+    buffer: vk::Buffer,
+    required_properties: vk::MemoryPropertyFlags,
+) -> u32 {
+    // see more at https://registry.khronos.org/vulkan/specs/latest/man/html/VkMemoryRequirements.html
+    let mem_properties = instance.get_physical_device_memory_properties(physical_device);
+    let type_filter = device.get_buffer_memory_requirements(buffer).memory_type_bits;
+
+    for (i, memory_type) in mem_properties.memory_types.iter().enumerate() {
+        if (type_filter & (1 << i)) > 0 && memory_type.property_flags.contains(required_properties)
+        {
+            return i as u32;
+        }
+    }
+    panic!("Failed to find suitable memory type!")
 }

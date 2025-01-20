@@ -24,3 +24,10 @@ pub(crate) struct Framebuffer {
     pub framebuffer: vk::Framebuffer,
     pub color: vk::ImageView,
 }
+
+#[repr(C)]
+#[derive(Clone, Debug, Copy, Default)]
+pub(crate) struct Vertex {
+    pub pos: [f32; 2],
+    pub color: [f32; 3],
+}

@@ -1,9 +1,10 @@
 #version 450
 #extension GL_EXT_multiview : require
 
-layout(location = 0) in vec2 screen_coords;
-layout(location = 0) out vec4 color;
+layout(location = 0) in vec3 fragColor;
+layout (location = 0) out vec4 outColor;
 
 void main() {
-    color = vec4(screen_coords, gl_ViewIndex, 1);
+    //outColor = vec4(fragColor, 1.0);
+    outColor = vec4(0.0,0.0,1.0,1.0);
 }

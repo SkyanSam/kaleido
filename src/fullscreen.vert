@@ -1,8 +1,11 @@
 #version 450
 
-layout(location = 0) out vec2 screen_coords;
+layout(location = 0) in vec2 position;
+layout(location = 1) in vec3 color;
 
-void main()  {
-    screen_coords = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-    gl_Position = vec4(screen_coords * 2.0f + -1.0f, 0.0, 1.0f);
+layout(location = 0) out vec3 fragColor;
+
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    fragColor = color;
 }
